@@ -6,6 +6,8 @@ basic sentiment score, and writes partitioned output to data/processed/.
 
 import re
 
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, udf
 from pyspark.sql.types import DoubleType, StringType
@@ -30,15 +32,14 @@ def clean_text(text: str) -> str:
     return text.strip()
 
 
+_vader = SentimentIntensityAnalyzer()
+
+
 def sentiment_score(text: str) -> float:
-    """Placeholder sentiment scorer. Replace with vaderSentiment or a HF pipeline."""
+    """Compound sentiment score from VADER, ranges from -1 (negative) to 1 (positive)."""
     if not text:
         return 0.0
-    negative_words = {"bad", "worst", "terrible", "angry", "broken", "refund", "delay"}
-    positive_words = {"great", "thanks", "love", "awesome", "resolved", "helpful"}
-    words = set(text.lower().split())
-    score = len(words & positive_words) - len(words & negative_words)
-    return float(score)
+    return float(_vader.polarity_scores(text)["compound"])
 
 
 def run() -> None:
