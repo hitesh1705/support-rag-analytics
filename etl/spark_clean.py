@@ -47,7 +47,14 @@ def run() -> None:
     clean_udf = udf(clean_text, StringType())
     sentiment_udf = udf(sentiment_score, DoubleType())
 
-    df = spark.read.option("header", True).csv(RAW_PATH)
+    df = (
+    spark.read
+    .option("header", True)
+    .option("multiLine", True)
+    .option("quote", '"')
+    .option("escape", '"')
+    .csv(RAW_PATH)
+)
 
     cleaned = (
         df.withColumn("clean_text", clean_udf(col("text")))

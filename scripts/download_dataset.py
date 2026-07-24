@@ -7,6 +7,7 @@ Usage:
     python scripts/download_dataset.py
 """
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -15,6 +16,8 @@ import pandas as pd
 DATASET = "thoughtvector/customer-support-on-twitter"
 RAW_DIR = Path("data/raw")
 SAMPLE_SIZE = 20000
+
+TWITTER_DATE_RE = re.compile(r"^[A-Za-z]{3} [A-Za-z]{3} \d{2} \d{2}:\d{2}:\d{2} \+0000 \d{4}$")
 
 
 def download() -> None:
@@ -40,27 +43,31 @@ def find_source_csv() -> Path:
 
 
 def sample() -> None:
-    """Sample a manageable subset and write it as tickets.csv."""
+    """Sample a manageable, clean subset and write it as tickets.csv."""
     source_file = find_source_csv()
     print(f"Reading source file: {source_file}")
 
-    df = pd.read_csv(source_file)
+    df = pd.read_csv(source_file, engine="python", on_bad_lines="skip")
+
+    if "created_at" not in df.columns or "text" not in df.columns:
+        raise KeyError("Expected 'created_at' and 'text' columns in the source dataset.")
+
+    valid_mask = df["created_at"].astype(str).str.match(TWITTER_DATE_RE)
+    dropped = (~valid_mask).sum()
+    if dropped:
+        print(f"Dropping {dropped} malformed rows out of {len(df)}")
+    df = df[valid_mask]
+
+    df["date"] = pd.to_datetime(
+        df["created_at"], format="%a %b %d %H:%M:%S %z %Y", errors="coerce"
+    ).dt.date.astype(str)
+
+    df = df.dropna(subset=["date", "text"])
     df = df.sample(n=min(SAMPLE_SIZE, len(df)), random_state=42)
 
-    # Normalize expected columns for the ETL job: text, date
-    if "created_at" in df.columns:
-        df["date"] = pd.to_datetime(
-            df["created_at"], errors="coerce", utc=True, format="mixed"
-        ).dt.date.astype(str)
-    else:
-        df["date"] = "unknown"
-
-    if "text" not in df.columns:
-        raise KeyError("Expected a 'text' column in the source dataset.")
-
     df[["text", "date"]].to_csv(RAW_DIR / "tickets.csv", index=False)
-    print(f"Wrote {len(df)} sampled tickets to {RAW_DIR / 'tickets.csv'}")
+    print(f"Wrote {len(df)} clean sampled tickets to {RAW_DIR / 'tickets.csv'}")
+
 
 if __name__ == "__main__":
-    download()
     sample()
