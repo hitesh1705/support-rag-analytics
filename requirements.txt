@@ -1,0 +1,12 @@
+pyspark==3.5.1
+pandas
+sentence-transformers
+chromadb
+anthropic
+fastapi
+uvicorn
+streamlit
+requests
+pydantic
+kaggle
+pyarrow
