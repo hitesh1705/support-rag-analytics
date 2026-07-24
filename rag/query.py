@@ -1,20 +1,21 @@
-"""RAG query engine: retrieves relevant tickets and asks Claude for a grounded answer."""
+"""RAG query engine: retrieves relevant tickets and asks Groq (free, hosted Llama) for a grounded answer."""
 
 import os
 
 import chromadb
-from anthropic import Anthropic
+from groq import Groq
 from sentence_transformers import SentenceTransformer
 
 CHROMA_PATH = "data/processed/chroma_db"
 COLLECTION_NAME = "support_tickets"
-MODEL_NAME = "all-MiniLM-L6-v2"
+EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
+GROQ_MODEL = "llama-3.3-70b-versatile"
 TOP_K = 8
 
-_model = SentenceTransformer(MODEL_NAME)
+_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
 _client = chromadb.PersistentClient(path=CHROMA_PATH)
 _collection = _client.get_or_create_collection(COLLECTION_NAME)
-_anthropic = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+_groq = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 
 def retrieve(question: str, top_k: int = TOP_K) -> dict:
@@ -24,7 +25,7 @@ def retrieve(question: str, top_k: int = TOP_K) -> dict:
 
 
 def answer(question: str) -> str:
-    """Retrieve relevant tickets and ask Claude to answer grounded in them."""
+    """Retrieve relevant tickets and ask Groq to answer grounded in them."""
     results = retrieve(question)
     documents = results["documents"][0]
     ids = results["ids"][0]
@@ -40,15 +41,13 @@ def answer(question: str) -> str:
         f"Tickets:\n{context}\n\nQuestion: {question}"
     )
 
-    response = _anthropic.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1000,
+    response = _groq.chat.completions.create(
+        model=GROQ_MODEL,
         messages=[{"role": "user", "content": prompt}],
+        max_tokens=1000,
     )
 
-    return "".join(
-        block.text for block in response.content if block.type == "text"
-    )
+    return response.choices[0].message.content
 
 
 if __name__ == "__main__":
