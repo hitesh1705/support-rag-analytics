@@ -1,32 +1,41 @@
+cat > README.md << 'MDEOF'
 # Support RAG Analytics
 
-An end-to-end pipeline that turns raw customer support tickets into a searchable, queryable knowledge base. Spark handles cleaning and feature extraction, embeddings power semantic search, and Claude generates grounded answers to natural-language questions like "what are customers complaining about with shipping this month?"
+An end-to-end pipeline that turns raw customer support tickets into a searchable, queryable knowledge base. Spark handles cleaning and feature extraction, embeddings power semantic search, and a free hosted LLM generates grounded answers to natural-language questions like "what are the top complaints in October 2017?"
+
+## Screenshots
+
+**Ask tab, natural-language Q&A over ticket history:**
+![Ask tab](/Users/hiteshyarlagadda/support-rag-analytics/screenshots/ask-tab-screenshot)
+
+**Trends tab, ticket volume and sentiment over time:**
+![Trends tab](/Users/hiteshyarlagadda/support-rag-analytics/screenshots/trends-tab-screenshot)
 
 ## Architecture
 
 ```
-Raw tickets (CSV/JSON)
+Raw tickets (Twitter customer support dataset)
         |
         v
-   S3 (raw bucket)
+   Local CSV (data/raw/tickets.csv)
         |
         v
-  PySpark ETL job  --> clean text, strip PII, sentiment score, partition by date
+  PySpark ETL job --> clean text, strip PII, VADER sentiment score, partition by date
         |
         v
-  S3 (processed bucket, Parquet)
+  Partitioned Parquet (data/processed/tickets)
         |
         v
-  Embedding pipeline (sentence-transformers)
+  Embedding pipeline (sentence-transformers, all-MiniLM-L6-v2)
         |
         v
-  Vector store (Chroma / FAISS)
+  Chroma vector store (local, persistent)
         |
         v
-  RAG query engine  --> retrieves top-k tickets, calls Claude API for grounded answer
+  RAG query engine --> retrieves top-k tickets, calls Groq API (Llama 3.3 70B) for grounded answer
         |
         v
-  FastAPI backend  (/ask, /trends, /sentiment-summary)
+  FastAPI backend (/ask, /trends, /sentiment-summary)
         |
         v
   Streamlit dashboard (chat + trend charts)
@@ -34,62 +43,71 @@ Raw tickets (CSV/JSON)
 
 ## Why this project exists
 
-Most portfolio "RAG chatbot" repos skip the data engineering step entirely. This one doesn't: the ETL layer is a real Spark job doing real cleaning and feature extraction, not just a CSV read. The goal is to demonstrate the full path from messy raw data to a production-shaped, LLM-powered analytics tool.
+Most portfolio "RAG chatbot" repos skip the data engineering step entirely. This one doesn't: the ETL layer is a real Spark job doing real cleaning, PII stripping, and sentiment scoring, not just a CSV read. The goal is to demonstrate the full path from messy raw data to a working, LLM-powered analytics tool.
 
 ## Tech stack
 
-- **ETL**: Apache Spark (PySpark), Dockerized
-- **Storage**: AWS S3 (free tier)
-- **Embeddings**: sentence-transformers (local, free)
-- **Vector store**: Chroma
-- **LLM / RAG**: Claude API (Anthropic)
+- **ETL**: Apache Spark (PySpark), run locally
+- **Data**: [Customer Support on Twitter](https://www.kaggle.com/datasets/thoughtvector/customer-support-on-twitter) dataset (Kaggle), 20k-row sample
+- **Sentiment**: VADER (rule-based sentiment analysis)
+- **Embeddings**: sentence-transformers (`all-MiniLM-L6-v2`), local, free
+- **Vector store**: Chroma (local, persistent)
+- **LLM / RAG generation**: [Groq API](https://console.groq.com) running Llama 3.3 70B, free tier, no local GPU needed
 - **API**: FastAPI
 - **Dashboard**: Streamlit
-- **Deployment**: AWS EC2 (free tier, t3.micro)
 - **Built with**: Claude Code (see `CLAUDE.md` for how this project was scaffolded and iterated on)
 
 ## Setup
 
 ```bash
 # 1. Clone
-git clone <your-repo-url>
+git clone https://github.com/hitesh1705/support-rag-analytics.git
 cd support-rag-analytics
 
-# 2. Install dependencies
+# 2. Create and activate a virtual environment (Python 3.11 recommended for PySpark compatibility)
+python3.11 -m venv venv
+source venv/bin/activate
+
+# 3. Install dependencies
 pip install -r requirements.txt
 
-# 3. Set your Anthropic API key
-export ANTHROPIC_API_KEY=your_key_here
+# 4. Set up Kaggle API access (for dataset download)
+# Get your token from kaggle.com/settings, then:
+mkdir -p ~/.kaggle
+# create ~/.kaggle/kaggle.json with {"username": "...", "key": "..."}
+chmod 600 ~/.kaggle/kaggle.json
 
-# 4. Download sample dataset
+# 5. Download and sample the dataset
 python scripts/download_dataset.py
 
-# 5. Run the Spark ETL job
+# 6. Run the Spark ETL job
 python etl/spark_clean.py
 
-# 6. Build embeddings + vector store
+# 7. Build embeddings + vector store
 python rag/embed.py
 
-# 7. Start the API
+# 8. Get a free Groq API key at console.groq.com, no credit card required
+export GROQ_API_KEY=your_key_here
+
+# 9. Start the API
 uvicorn api.main:app --reload
 
-# 8. Start the dashboard (separate terminal)
+# 10. Start the dashboard (separate terminal, with venv activated)
 streamlit run frontend/app.py
 ```
 
-## Dataset
+## Design decisions worth knowing about
 
-Uses a sample of the [Customer Support on Twitter](https://www.kaggle.com/datasets/thoughtvector/customer-support-on-twitter) dataset. `scripts/download_dataset.py` documents how to fetch it (requires a free Kaggle account/API key).
+- **Local Spark instead of EMR**: this project runs Spark locally/via Docker rather than on a distributed cluster, since the dataset is a 20k-row sample sized for fast iteration. The ETL logic (cleaning, PII stripping, partitioning, sentiment scoring) is written the same way it would be on a cluster; scaling to EMR Serverless would mean pointing the job at S3 paths instead of local paths.
+- **Groq instead of a paid LLM API**: Groq's free tier hosts open-source models (Llama 3.3 70B) with no cost and no rate limits that matter for a project this size, which keeps the whole pipeline genuinely free to run and reproduce.
+- **VADER instead of a fine-tuned sentiment model**: rule-based sentiment is fast, deterministic, and good enough for trend analysis at this scale, without needing to fine-tune anything.
 
-## Deployment (AWS free tier)
+## Roadmap
 
-- S3 for raw and processed data storage
-- EC2 t3.micro (free tier, 750 hrs/month for 12 months) running the FastAPI + Streamlit app via Docker Compose
-- See `infra/` for setup notes (added as the project develops)
-
-## Project status
-
-Built as a rapid, focused portfolio project. Roadmap for future iterations: distributed processing on EMR Serverless, Airflow orchestration, OpenSearch Serverless for vector storage at scale.
+- Distributed processing on AWS EMR Serverless
+- Airflow orchestration for scheduled re-ingestion
+- OpenSearch Serverless for vector storage at scale
+- Deployment on AWS EC2 (free tier)
 
 ## License
 
