@@ -1,4 +1,3 @@
-cat > README.md << 'MDEOF'
 # Support RAG Analytics
 
 An end-to-end pipeline that turns raw customer support tickets into a searchable, queryable knowledge base. Spark handles cleaning and feature extraction, embeddings power semantic search, and a free hosted LLM generates grounded answers to natural-language questions like "what are the top complaints in October 2017?"
